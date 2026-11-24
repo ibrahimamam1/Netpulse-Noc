@@ -1,4 +1,7 @@
 #All Site containers share one image; noc-core builds the C++ prober (prober/Dockerfile).
+# NetPulse NOC - Layer 1: Virtual Multi-Site WAN
+# Site containers share one image (topology/Dockerfile); noc-core builds the C++ prober (prober/Dockerfile);
+# noc-engine builds the Python analytics service (engine/Dockerfile).
 
 x-site: &site
   image: netpulse-node:latest
@@ -32,6 +35,33 @@ services:
         ipv4_address: 172.20.1.10
       wan_backup:
         ipv4_address: 172.20.2.10
+
+  noc-engine:
+    image: netpulse-engine:latest
+    build:
+      context: ./engine
+    container_name: noc-engine
+    hostname: noc-engine
+    restart: unless-stopped
+    depends_on:
+      - noc-core
+    environment:
+      PROBER_URL: "http://172.20.1.10:9100/api/v1/telemetry"
+      POLL_INTERVAL_S: "1.0"
+      WARMUP_SAMPLES: "30"
+      EWMA_ALPHA: "0.2"
+      ZSCORE_THRESHOLD: "3.0"
+      CONSECUTIVE_HITS_K: "3"
+      SLA_TARGET_PCT: "99.9"
+      SLA_WINDOW_SECONDS: "3600"
+      HTTP_PORT: "9200"
+    ports:
+      - "9200:9200"
+    volumes:
+      - engine_data:/app/data
+    networks:
+      wan_primary:
+        ipv4_address: 172.20.1.20
 
   site-douala:
     <<: *site
@@ -89,6 +119,9 @@ services:
         ipv4_address: 172.20.1.13
       wan_backup:
         ipv4_address: 172.20.2.13
+
+volumes:
+  engine_data:
 
 networks:
   wan_primary:
