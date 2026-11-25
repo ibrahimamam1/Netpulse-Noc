@@ -58,7 +58,8 @@ flowchart TB
     core -->|"metrics"| prom
     eng -->|"metrics"| prom
     ctrl -->|"metrics"| prom
-    prom --> graf```
+    prom --> graf
+```
 
 ---
 
