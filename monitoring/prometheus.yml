@@ -1,0 +1,25 @@
+#  Prometheus scrape configuration.
+# 1 s scrape so sub-second failovers and latency ramps render smoothly in Grafana.
+global:
+  scrape_interval: 1s
+  scrape_timeout: 900ms      # must not exceed scrape_interval
+  evaluation_interval: 1s
+
+scrape_configs:
+  # Layer 2: C++ probing agent inside noc-core
+  - job_name: netpulse-prober
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["172.20.1.10:9100"]
+
+  # Layer 3: anomaly detection + SLA engine
+  - job_name: netpulse-engine
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["172.20.1.20:9200"]
+
+  # Layer 4: failover controller
+  - job_name: netpulse-controller
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["172.20.1.30:9300"]

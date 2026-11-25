@@ -1,0 +1,13 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus            # explicit UID: dashboard panels reference it and never break on import
+    type: prometheus
+    access: proxy
+    url: http://172.20.1.40:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      timeInterval: 1s         # matches the 1 s scrape interval

@@ -5,6 +5,7 @@ set -u
 
 SITE_NAME="${SITE_NAME:-unknown}"
 TCP_PROBE_PORT="${TCP_PROBE_PORT:-8080}"
+LAN_IP="${LAN_IP:-}"   # virtual enterprise LAN address (e.g. 10.10.1.1/32) bound to lo
 PRIMARY_DELAY_MS="${PRIMARY_DELAY_MS:-0}"
 PRIMARY_JITTER_MS="${PRIMARY_JITTER_MS:-0}"
 PRIMARY_LOSS_PCT="${PRIMARY_LOSS_PCT:-0}"
@@ -43,6 +44,13 @@ log "primary=$PRIMARY_IF backup=$BACKUP_IF"
 
 apply_netem "$PRIMARY_IF" "$PRIMARY_DELAY_MS" "$PRIMARY_JITTER_MS" "$PRIMARY_LOSS_PCT" "primary" || exit 1
 apply_netem "$BACKUP_IF"  "$BACKUP_DELAY_MS"  "$BACKUP_JITTER_MS"  "$BACKUP_LOSS_PCT"  "backup"  || exit 1
+
+# Virtual enterprise LAN: a /32 on the loopback that noc-core reaches via primary or backup
+# next-hop (Layer 4 switches that route). Replies leave via the interface the request arrived on.
+if [ -n "$LAN_IP" ]; then
+  ip addr replace "$LAN_IP" dev lo || { log "ERROR: could not assign $LAN_IP to lo"; exit 1; }
+  log "enterprise LAN address $LAN_IP assigned to lo"
+fi
 
 # TCP probe listener: replies "OK" and closes.
 socat TCP-LISTEN:"${TCP_PROBE_PORT}",fork,reuseaddr,bind=0.0.0.0 SYSTEM:'echo OK' &

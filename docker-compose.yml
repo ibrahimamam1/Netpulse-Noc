@@ -1,7 +1,8 @@
-#All Site containers share one image; noc-core builds the C++ prober (prober/Dockerfile).
-# NetPulse NOC - Layer 1: Virtual Multi-Site WAN
+
 # Site containers share one image (topology/Dockerfile); noc-core builds the C++ prober (prober/Dockerfile);
-# noc-engine builds the Python analytics service (engine/Dockerfile).
+# noc-engine builds the Python analytics service (engine/Dockerfile);
+# noc-controller builds the failover controller (controller/Dockerfile);
+# prometheus + grafana (monitoring/) provide the live NOC dashboard.
 
 x-site: &site
   image: netpulse-node:latest
@@ -63,12 +64,91 @@ services:
       wan_primary:
         ipv4_address: 172.20.1.20
 
+  noc-controller:
+    image: netpulse-controller:latest
+    build:
+      context: ./controller
+    container_name: noc-controller
+    hostname: noc-controller
+    restart: unless-stopped
+    depends_on:
+      - noc-core
+      - noc-engine
+    environment:
+      ENGINE_URL: "http://172.20.1.20:9200/api/v1/status"
+      POLL_INTERVAL_S: "0.5"
+      CORE_CONTAINER_NAME: "noc-core"
+      HOLD_DOWN_SECONDS: "20"
+      FLAP_WINDOW_SECONDS: "120"
+      FLAP_MAX_TRANSITIONS: "3"
+      ALERT_WEBHOOK_URL: "${ALERT_WEBHOOK_URL:-}"
+      HTTP_PORT: "9300"
+    ports:
+      - "9300:9300"
+    volumes:
+      # Grants the controller `docker exec` into noc-core. Root-equivalent access to the
+      # Docker host: acceptable for this lab, not for production.
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      wan_primary:
+        ipv4_address: 172.20.1.30
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: prometheus
+    hostname: prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=24h
+    depends_on:
+      - noc-core
+      - noc-engine
+      - noc-controller
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      wan_primary:
+        ipv4_address: 172.20.1.40
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: grafana
+    hostname: grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      # Zero-click demo access: anyone opening http://localhost:3000 lands on the NOC dashboard.
+      # (Anonymous *Admin* + no login form: fine for a local demo, never expose this publicly.)
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: "/var/lib/grafana/dashboards/noc_overview.json"
+      GF_DASHBOARDS_MIN_REFRESH_INTERVAL: "1s"   # default is 5s, which would clamp the 2s auto-refresh
+      GF_USERS_DEFAULT_THEME: "dark"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      wan_primary:
+        ipv4_address: 172.20.1.41
+
   site-douala:
     <<: *site
     container_name: site-douala
     hostname: site-douala
     environment:
       SITE_NAME: douala
+      LAN_IP: "10.10.1.1/32"
       PRIMARY_DELAY_MS: "10"
       PRIMARY_JITTER_MS: "1"
       PRIMARY_LOSS_PCT: "0"
@@ -88,6 +168,7 @@ services:
     hostname: site-yaounde
     environment:
       SITE_NAME: yaounde
+      LAN_IP: "10.10.2.1/32"
       PRIMARY_DELAY_MS: "12"
       PRIMARY_JITTER_MS: "1"
       PRIMARY_LOSS_PCT: "0"
@@ -107,6 +188,7 @@ services:
     hostname: site-edge
     environment:
       SITE_NAME: edge
+      LAN_IP: "10.10.3.1/32"
       PRIMARY_DELAY_MS: "18"
       PRIMARY_JITTER_MS: "2"
       PRIMARY_LOSS_PCT: "0"
@@ -122,6 +204,7 @@ services:
 
 volumes:
   engine_data:
+  prometheus_data:
 
 networks:
   wan_primary:
