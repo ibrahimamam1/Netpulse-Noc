@@ -24,38 +24,41 @@
 
 ```mermaid
 flowchart TB
-    subgraph WAN["Layer 1: Virtual Multi-Site WAN (Docker + Linux tc/netem)"]
+    subgraph wan["Virtual Enterprise WAN (Docker)"]
         direction LR
-        D["site-douala<br/>LAN: 10.10.1.1/32<br/>Pri: 10ms | Bkp: 45ms"]
-        Y["site-yaounde<br/>LAN: 10.10.2.1/32<br/>Pri: 12ms | Bkp: 50ms"]
-        E["site-edge<br/>LAN: 10.10.3.1/32<br/>Pri: 18ms | Bkp: 65ms"]
-        FI["fault_injector.py<br/>(fiber-cut, drift, loss, flapping)"] -.->|tc / netem| D & Y & E
+        d["site-douala<br/>10.10.1.1/32"]
+        y["site-yaounde<br/>10.10.2.1/32"]
+        e["site-edge<br/>10.10.3.1/32"]
+        fi["fault_injector.py<br/>Linux tc / netem"]
+
+        fi -.->|"Inject Faults"| d
+        fi -.->|"Inject Faults"| y
+        fi -.->|"Inject Faults"| e
     end
 
-    subgraph CORE["Layer 2: Telemetry & Probing Plane"]
-        P["noc-core: C++20 Prober<br/>Raw ICMP + Non-Blocking TCP<br/>:9100/metrics & /api/v1/telemetry"]
+    subgraph control["Control and Telemetry Plane"]
+        core["noc-core<br/>C++20 Prober :9100"]
+        eng["noc-engine<br/>EWMA + Isolation Forest :9200"]
+        ctrl["noc-controller<br/>Failover FSM + Alerter :9300"]
     end
 
-    subgraph ANALYTICS["Layer 3: Anomaly & SLA Engine"]
-        A["noc-engine: Python 3.11<br/>EWMA/Z-Score + Isolation Forest<br/>99.9% SLA Budget & SQLite<br/>:9200/metrics & /api/v1/status"]
+    subgraph obs["Observability Stack"]
+        prom["Prometheus :9090"]
+        graf["Grafana NOC Dashboard :3000"]
     end
 
-    subgraph CONTROL["Layer 4: Automated Failover Controller"]
-        C["noc-controller: Python FSM<br/>Hold-Down & Flap Dampening<br/>Webhook Alerter<br/>:9300/metrics & /api/v1/failover"]
-    end
+    core -->|"Primary Fiber and Backup 4G Probes"| d
+    core -->|"Primary Fiber and Backup 4G Probes"| y
+    core -->|"Primary Fiber and Backup 4G Probes"| e
 
-    subgraph OBS["Layer 5: NOC Observability"]
-        PR["Prometheus<br/>1s Scrape (:9090)"]
-        GR["Grafana NOC Dashboard<br/>Zero-Click Auto-Provisioned (:3000)"]
-        PR --> GR
-    end
+    core -->|"JSON Telemetry"| eng
+    eng -->|"Health and SLA Status"| ctrl
+    ctrl -->|"ip route replace"| core
 
-    P <-->|wan_primary & wan_backup| D & Y & E
-    P -->|JSON Telemetry| A
-    A -->|Health States & Scores| C
-    C -->|ip route replace| P
-    P & A & C -->|/metrics| PR
-```
+    core -->|"metrics"| prom
+    eng -->|"metrics"| prom
+    ctrl -->|"metrics"| prom
+    prom --> graf```
 
 ---
 
